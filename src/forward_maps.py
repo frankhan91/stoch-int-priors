@@ -11,7 +11,7 @@ def add_gaussian_noise(epsilon: float) -> callable:
     def fwd(x, return_latents=False, generator=None):
         z = torch.randn(x.shape, generator=generator).to(x.device)
         x_n = x + epsilon * z
-        if return_latents: 
+        if return_latents:
             return x_n, z
         else: return x_n
     return fwd
@@ -49,7 +49,7 @@ def random_mask_image(mask_ratio: float, epsilon: float) -> callable:
         z = torch.randn(image.shape, generator=generator).to(image.device)
         x_n += z * epsilon
 
-        if return_latents: 
+        if return_latents:
             return x_n, mask
         else:
             return x_n
@@ -90,14 +90,14 @@ def random_mask_image(mask_ratio: float, epsilon: float) -> callable:
 #             raise ValueError(f"Expected 3D or 4D tensor, got {image.dim()}D")
 
 #         masked_image = image * mask
-        
+
 #         return masked_image
 
 #     return fwd
 
 
 def gaussian_blur(sigma: float, epsilon: float) -> callable:
-    """Returns a function that applies Gaussian blur to an input tensor."""        
+    """Returns a function that applies Gaussian blur to an input tensor."""
     kernel_size = int(2 * math.ceil(3*sigma) + 1)
     gaussian_blur = transforms.GaussianBlur(kernel_size=kernel_size, sigma=sigma)
 
@@ -165,7 +165,7 @@ def random_block_mask(block_size, epsilon):
         if return_latents:
             return img, mask
         else:
-            return img    
+            return img
     return fwd
 
 
@@ -205,7 +205,7 @@ def motion_blur(kernel_size, angle, epsilon):
         out = F.conv2d(img, weight=k.expand(img.size(1), -1, -1, -1).to(img.device),
                     padding=pad, groups=img.size(1))
         out = out.squeeze(0) if was_3d else out
-        
+
         z = torch.randn(img.shape, generator=generator).to(img.device)
         out += z * epsilon
         if was_3d:
@@ -213,7 +213,7 @@ def motion_blur(kernel_size, angle, epsilon):
         if return_latents:
             return out, k
         else:
-            return out   
+            return out
     return fwd
 
 
@@ -250,7 +250,7 @@ def random_motion(kernel_size, epsilon):
             ])
             thetas.append(theta)
         thetas = torch.stack(thetas).to(img.device)  # Shape: [batch_size, 2, 3]
- 
+
         # 3) Rotate kernels in batch via grid_sample
         #    Expand k to (N,1,Kh,Kw) for grid_sample
         k_batch = k.expand(batch_size, 1, kernel_size, kernel_size).to(img.device)
@@ -266,7 +266,7 @@ def random_motion(kernel_size, epsilon):
         weight = ka.repeat_interleave(C, dim=0)  # (N*C,1,Kh,Kw)
         # Convolve with groups=N*C and reshape back to (N,C,H,W)
         out = F.conv2d(img_reshaped, weight=weight, padding=pad, groups=N*C)
-        out = out.view(N, C, H, W)     
+        out = out.view(N, C, H, W)
 
         z = torch.randn(img.shape, generator=generator).to(img.device)
         out += z * epsilon
@@ -277,7 +277,7 @@ def random_motion(kernel_size, epsilon):
             latent = latent.squeeze(0) if was_3d else latent
             return out, latent
         else:
-            return out   
+            return out
     return fwd
 
 
@@ -300,7 +300,7 @@ def random_motion2(kernel_size, epsilon):
         Returns a single-channel map (H,W) where each pixel's
         value = (x, y)·(cos(theta), sin(theta)), with x,y in [-1,+1].
         """
-        # vx, vy = cos, sin    
+        # vx, vy = cos, sin
         # build normalized coordinate grids from -1 to +1
         xs = torch.linspace(-1.0, 1.0, W, device=cos.device).view(1, W).expand(H, W)
         ys = torch.linspace(-1.0, 1.0, H, device=sin.device).view(H, 1).expand(H, W)
@@ -308,7 +308,7 @@ def random_motion2(kernel_size, epsilon):
         proj = cos * xs + sin * ys   # shape (H, W)
         return proj
 
-    
+
     def fwd_single(img, cos, sin):
 
         was_3d = (img.dim() == 3)
@@ -320,7 +320,7 @@ def random_motion2(kernel_size, epsilon):
         # cos = torch.cos(angle)                    # (N,)
         # sin = torch.sin(angle)                    # (N,)
         zeros = torch.zeros_like(cos)           # (N,)
-        
+
         # 3) pack into the batch of 2×3 matrices
         row1 = torch.stack([ cos, -sin, zeros ], dim=0)  # (N, 3)
         row2 = torch.stack([ sin,  cos, zeros ], dim=0)  # (N, 3)
@@ -330,7 +330,7 @@ def random_motion2(kernel_size, epsilon):
         grid = F.affine_grid(theta, k.size(), align_corners=False)
         k = F.grid_sample(k, grid, align_corners=False)
         k = k / k.sum()
-            
+
         # pad so output same size
         pad = kernel_size // 2
         out = F.conv2d(img, weight=k.expand(img.size(1), -1, -1, -1).to(img.device),
@@ -348,7 +348,7 @@ def random_motion2(kernel_size, epsilon):
 
         # sample angle and rotate via grid_sample
         if angles is  None:
-            angles = (torch.rand(batch_size, generator=generator) - 0.5) * 360.  
+            angles = (torch.rand(batch_size, generator=generator) - 0.5) * 360.
         angles = angles.to(img.device)
         rads = torch.deg2rad(angles)
         cos, sin = torch.cos(rads), torch.sin(rads)
@@ -475,7 +475,7 @@ def jpeg_compression(quality, epsilon):
         was_3d = (img.dim() == 3)
         if was_3d:
             img = img.unsqueeze(0)  # Add batch dimension
-        
+
         # sample angle and rotate via grid_sample
         out = torch.vmap(compress, in_dims=(0), out_dims=(0))(img)
         z = torch.randn(img.shape, generator=generator).to(img.device)
@@ -493,17 +493,59 @@ def jpeg_compression(quality, epsilon):
     return fwd
 
 
+def random_projection(dim_out: float, epsilon: float) -> callable:
+    dim_out = int(dim_out)
+    def measure(A: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        """
+        Performs a batched matrix-vector product using einsum.
+        A: shape (..., M, N)
+        x: shape (..., N)
+        Returns: shape (..., M)
+        """
+        return torch.einsum('...ij,...j->...i', A, x)
+
+    def fwd(x: torch.Tensor, return_latents=False, generator=None):
+        """
+        Args:
+            x: a 2-D tensor of shape (B, dim_in)
+        """
+        N, dim_in = x.shape
+        A = torch.randn(N, dim_out, dim_in, device=x.device)
+        A = A / torch.linalg.norm(A, dim=-1, keepdim=True)
+        # Below is random 2 * 2 rotation matrix for test
+        # theta = torch.rand(N, device=x.device,) * 2 * torch.pi
+        # cos_theta = torch.cos(theta)
+        # sin_theta = torch.sin(theta)
+        # A = torch.zeros(N, 2, 2, device=x.device)
+        # A[:, 0, 0] = cos_theta
+        # A[:, 0, 1] = -sin_theta
+        # A[:, 1, 0] = sin_theta
+        # A[:, 1, 1] = cos_theta
+
+        x_n = measure(A, x)
+        z = torch.randn(x_n.shape, generator=generator).to(x.device)
+        x_n += z * epsilon
+        padded = torch.randn(N, dim_in - dim_out, device=x.device)
+        x_n = torch.cat([x_n, padded], dim=-1)
+
+        if return_latents:
+            return x_n, A
+        else:
+            return x_n
+    return fwd
+
 
 corruption_dict = {
     'gaussian_noise': add_gaussian_noise,
     'random_mask': random_mask_image,
-    'noise_and_mask': random_mask_image, 
+    'noise_and_mask': random_mask_image,
     'gaussian_blur': gaussian_blur,
     'block_mask': random_block_mask,
     'motion_blur': motion_blur,
     'random_motion': random_motion,
     'random_motion2': random_motion2,
     'jpeg_compress': jpeg_compression,
+    'projection': random_projection
 }
 
 def parse_latents(corruption, D):
@@ -517,6 +559,9 @@ def parse_latents(corruption, D):
     elif corruption == 'random_motion2':
         use_latents = True
         latent_dim = [1, D, D]
+    elif corruption == 'projection':
+        use_latents = True
+        latent_dim = [1, 2, 5]
     else:
         use_latents = False
         latent_dim = None
